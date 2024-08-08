@@ -9,9 +9,9 @@ df = pd.read_csv('mean_dict.csv', na_values=['', 'NA', 'N/A'], keep_default_na=T
 Notes:
 
 '''
-
+# we're going to have to localize these parameters to the individual games/cores
 # GLOBAL PARAMETERS BELOW, WILL FIRST MAKE FOR SINGLE CORE PROCESSING THEN CHANGE IT UP FOR MULTIPROCESSING
-
+categories = ["Q1","Q2","Q3","Q4"]
 n = 120 # the number of students seeking admission
 high_variance_frequency = 1/4 # the frequency of students displaying high talent in "unconvetional" traits
 high_mean_frequency = 2/5 # the frequency of students displaying high talent by convetional metrics (like GPA, published papers, etc)
@@ -165,7 +165,7 @@ def calc_collisions(category:str, strategies:dict)->float:
     except:
         raise ValueError('Some error occured, here were the strategy dictionaries', strategies, "\n And here are the conditions of collapse", to_admit)
 
-def calc_max_size(strategies: dict[dict[str:int]], opposition_player: str, blind=False) -> dict[str:int]:
+def calc_max_size(strategies: dict[dict[str:int]], opposition_player: str) -> dict[str:int]:
     '''
     This function calculates the maximum number of students a player can possibly allocate to each category and returns it as a dictionary
 
@@ -184,10 +184,7 @@ def calc_max_size(strategies: dict[dict[str:int]], opposition_player: str, blind
         # if we admit everyone, we will get
 
         # max_realized = size_dict - num_opp_selected*(opp_win_chance)
-        if not blind:
-            max_admitees[key] = round(size_dictionary[key] - value*(1-prob_win))
-        else:
-            raise ValueError("YET TO BE IMPLEMENTED, NEEDS MATH CALCULATION")
+        max_admitees[key] = math.floor(size_dictionary[key] - value*(1-prob_win))
 
     return max_admitees
 
@@ -197,99 +194,9 @@ def opp(player):
     else:
         return "underdog"
 
-def generate_combinations(max_admitees, heuristic=False, blind=False):
+def greedy_br(strategies, player, blind=False):
     '''
-    This function generates all of the possible test cases
-    '''
-    #print(to_admit)
-    memo = {}
-    def num_combinations(num_items: int, num_bins: int) -> int:
-        # Base case: if there are 2 bins, we have num_items + 1 options
-        if num_bins == 2:
-            return num_items + 1
-        
-        # If the problem was already solved elsewhere, just store it
-        elif (num_items, num_bins) in memo:
-            return memo[(num_items, num_bins)]
-        
-        # If the problem is unsolved, solve it by breaking it down into its components
-        else:
-            num_combos = 0
-            for i in range(num_items+1):
-                num_combos += num_combinations(num_items-i, num_bins-1)
-            memo[(num_items, num_bins)] = num_combos
-            #print(num_items, "items distributed into", num_bins, "boxes has", num_combos, "combinations")
-            return num_combos
-
-    if not blind:
-        max_combos = num_combinations(to_admit, 4)
-        possible_combinations = np.zeros((max_combos,4))
-        #print(possible_combinations)
-        #print("Number of possible combinations", max_combos)
-        index = 0
-        # translator = {4:"Q1", 3:"Q2", 2:"Q3"}
-
-        if heuristic == False:
-            # OK so this covers every possible move
-            for i in range(min(top_k, max_admitees["Q1"]), min(to_admit, max_admitees["Q1"])+1):
-                admitted = i
-                # we need to ensure that to_admit is matched by later levels
-                for j in range(min(to_admit-admitted, max_admitees["Q2"])+1):
-                    admitted = i + j
-                    for k in range(min(to_admit-admitted, max_admitees["Q3"])+1):
-                        # this is the level we need to match at
-                        remainder = to_admit-(i+j+k)
-                        if remainder <= max_admitees["Q4"]:
-                            possible_combinations[index] = [i,j,k,remainder]
-                            index += 1
-                            #print(possible_combinations)
-        
-        else:
-            i = min(to_admit, max_admitees["Q1"])
-            admitted = i
-            # we need to ensure that to_admit is matched by later levels
-            for j in range(min(to_admit-admitted, max_admitees["Q2"])+1):
-                admitted = i + j
-                for k in range(min(to_admit-admitted, max_admitees["Q3"])+1):
-                    # this is the level we need to match at
-                    remainder = to_admit-(i+j+k)
-                    #print([i,j,k,remainder])
-                    if (remainder <= i+j or remainder <= i+k or remainder <= j + k) and remainder <= max_admitees["Q4"]:
-                        possible_combinations[index] = [i,j,k,remainder]
-                        index += 1
-                        #print(possible_combinations)
-
-        possible_combinations.resize((index,4), refcheck=False)
-        #print("Number of combinations to actually check", len(possible_combinations))
-        #print(possible_combinations)
-        return possible_combinations
-
-    else:
-        possible_combos = []
-        index = 0
-        ''' In order to generate all blind combinations, we have to increase the number of items in possible combinations proportionally'''
-        # note, it should not be based solely on the max admittees of q1
-        # what should happen is opp q1 + q2 should be added up
-        # from this we calculate the maximum we can admit in this category
-        # then we go down
-        max_admitq1q2 = 
-        for admit_q12_combined in range(1,min(math.floor(to_admit/(1 + size_dictionary["Q2"]/size_dictionary["Q1"])), max_admitees["Q1"])+1):
-            # q2 will have q2/q1 * admitted 
-            # x + x(q2/q1) = x (1 + q2/q1) < to_admit. x < to_admit/(1+q2/q1)
-            admit_q2 = round(size_dictionary["Q2"]/size_dictionary["Q1"]*admit_q1)
-            admit_q34_combined = to_admit-(admit_q1+admit_q2)
-            admit_q3 = round(size_dictionary["Q3"]/(size_dictionary["Q3"]+size_dictionary["Q4"])*admit_q34_combined)
-            admit_q4 = admit_q34_combined-admit_q3
-            possible_combos.append([admit_q1, admit_q2, admit_q3, admit_q4])
-            index += 1
-        #print(possible_combos)
-        return possible_combos
-        
-
-
-def best_response(strategies, player, blindness=False):
-    '''
-    This function calculates the exact best response using a combination of brute force and heuristics for a given enemy strategy
+    This function calculates the approximate best response using a greedy method given an enemy strategy
 
     The best response functions takes:
         some enemy strategy (how much they're taking from each group)
@@ -299,6 +206,7 @@ def best_response(strategies, player, blindness=False):
     
     '''
     Retrieve the maximum number of admittees per category based on the enemy strategy
+
     '''
     oppo = opp(player)
     max_admitees = calc_max_size(strategies, oppo)
@@ -306,46 +214,86 @@ def best_response(strategies, player, blindness=False):
         win_chance = underdog_win_chance
     else:
         win_chance = 1 - underdog_win_chance
-    #print(max_admitees)
-    #print(to_admit)
-    # Use the max_admitees to generate possible variants that respect the total admissions
-    strategies_array = generate_combinations(max_admitees, heuristic=False, blind=blindness)
-    #print(strategies_array)
-    if len(strategies_array) == 0:
-        print("Strategies array has no items in it")
-        print(underdog_win_chance, to_admit, top_k, size_dictionary, strategy_dictionary, to_admit, high_mean_frequency, high_variance_frequency)
-        raise ValueError('somehow strategies array has no items in it')
-    #print(strategies_array)
-    # check the top k values of each of the possible combinations
+    
 
-    max_val = 0
-    max_index = 0
-    for i in range(len(strategies_array)):
-        strategy = strategies_array[i]
-        value = evaluate_top_k(strategy, top_k)
-        if value > max_val:
-            max_val = value
-            #print(value, strategy)
-            max_index = i
+    def eval_strat(strat:list[list[int]]) -> float:
+        flattened_array = sorted(strat.reshape(-1), reverse=True)
+        return sum(flattened_array[:top_k])
 
 
-        #print("the optimal strategy has been found and it is", strategies_array[max_index])
-        # now that we found the optimal strategy set it equal to the players strategy dictionary
+    '''
+    Find the approximate best response by finding the marginal utility of putting one more weight onto each category for each admission
+    '''
+    strategy = [0,0,0,0]
+    individual_top_ks = np.zeros((4 , top_k))
+    value = 0
+    best_increase = float('inf')
+    #print(individual_top_ks)
+    for i in range(to_admit):
+        for j in range(4):
+            cat = categories[j]
+            print(cat, "category has", category_to_distribution_values[cat][0], "mean")
+            print(cat, "category has", category_to_distribution_values[cat][1], "variance")
+            print()
+            max_cat_size = max_admitees[cat]
+            if strategy[j] + 1 < max_cat_size:
+                test_strat = strategy[:]
+                test_strat[j] += 1
+                # calculate the increase in valuation and compare
+                test_indi_top_ks = individual_top_ks[:]
+                for k in range(top_k):
+                    # calculate the new valuation of the increased metric
+                    if strategy[j]//2 >= k:
+                        z_score = df_lookup(test_strat[j], k+1)
+                        val = category_to_distribution_values[cat][0]+category_to_distribution_values[cat][1]*z_score
+                        print(test_strat[j], "samples in", cat, "at k =", k+1, "has", val, "value")
+                        print()
+                        test_indi_top_ks[j][k] = val
+                    else:
+                        test_indi_top_ks[j][k] = 0
+                        print(test_strat[j], "samples in", cat, "at k =", k+1, "has", 0, "value")
+                        print()
+                        break
+                # evaluate the total value of the strategy
+                print(test_indi_top_ks)
+                test_val = eval_strat(test_indi_top_ks)
+                # if its better, then store it for it later use
+                if test_val >= value:
+                    value = test_val
+                    best_top_ks = test_indi_top_ks
+                    best_increase = j
+        
+        print("It's best to increase", categories[best_increase], "by 1")
+        print()
+        individual_top_ks = best_top_ks
+        strategy[best_increase] += 1
 
-        # to do this we have to calculate this back to the strategies with collisions accounted for
-        # admitees = x - # collisions + # collisions * prob_win
-        # admitees = x - collisions(1-prob_win)
-        # (admitees + collision(1-prob_win)) = x
+    print(size_dictionary)
+    print(strategy_dictionary)
+    print(max_admitees)
+    print(player, "player thinks", strategy, "is best resposne")
+    print()
+        
 
-        # realized = (invites - (1-win_chance)*collisions) because we subtract the number of collisions we lose
-        # collisions needs to be calculated with invites
-        # realized = invites - collisions + win_chance * collisions
-        # collisions = invites/size * other_invites/size * size
-        # so realized = invites - (1-win_chance)* invites * other_invites / size_category
-        # realized = invites (1 - (1- win chance)*other_invites/size category)
-        # realized / (1 - (other win)*other_rate)
 
-    categories = ["Q1", "Q2", "Q3", "Q4"]
+
+
+    #print("the optimal strategy has been found and it is", strategies_array[max_index])
+    # now that we found the optimal strategy set it equal to the players strategy dictionary
+
+    # to do this we have to calculate this back to the strategies with collisions accounted for
+    # admitees = x - # collisions + # collisions * prob_win
+    # admitees = x - collisions(1-prob_win)
+    # (admitees + collision(1-prob_win)) = x
+
+    # realized = (invites - (1-win_chance)*collisions) because we subtract the number of collisions we lose
+    # collisions needs to be calculated with invites
+    # realized = invites - collisions + win_chance * collisions
+    # collisions = invites/size * other_invites/size * size
+    # so realized = invites - (1-win_chance)* invites * other_invites / size_category
+    # realized = invites (1 - (1- win chance)*other_invites/size category)
+    # realized / (1 - (other win)*other_rate)
+
     #print(strategies_array[max_index])
     for i in range(len(categories)):
         cat = categories[i]
@@ -356,11 +304,13 @@ def best_response(strategies, player, blindness=False):
         '''
         This line is not operating correctly, it should be able to max out a category from strategies_array, so we need to reverse the calcuation
         '''
-        strategy_dictionary[player][cat] = min(size_dictionary[cat], round(strategies_array[max_index][i]/(1-(1-win_chance)*strategy_dictionary[oppo][cat]/size_dictionary[cat])))
+        strategy_dictionary[player][cat] = min(size_dictionary[cat], round(strategy[i]/(1-(1-win_chance)*strategy_dictionary[oppo][cat]/size_dictionary[cat])))
     #print("successfully executed best response", strategy_dictionary)
     #print()
 
     #raise ValueError('best_response implementation not finished - current step is to calculate all possible admissions')
+
+
 
 def evaluate_top_k(strategy: list[int], k: int) -> float:
     '''
@@ -402,13 +352,13 @@ def play_game(epsilon=0.001):
     iterations = 0
     while difference1 > epsilon or difference2 > epsilon:
         init1 = sum(strategy_dictionary[player1].values())
-        best_response(strategy_dictionary, player1, blindness=False)
+        greedy_br(strategy_dictionary, player1)
         difference1 = sum(strategy_dictionary[player1].values()) - init1
         
         
         init2 = sum(strategy_dictionary[player2].values())
         #print(strategy_dictionary[player2], init2)
-        best_response(strategy_dictionary, player2, blindness=True)
+        greedy_br(strategy_dictionary, player2)
         difference2 = sum(strategy_dictionary[player2].values()) - init2
 
         iterations += 1
@@ -449,11 +399,11 @@ def full_game(inputs: list) -> list:
     set_population_params(total_students=n, num_to_admit=num_admit, prob_underdog=prob_win_underdog, top_k_size=max(1, int(.2*num_admit)))
     set_freq(mu_high=pop_frequencies[0], sigma_high=pop_frequencies[1])
 
+    print("playing game with", n, "students", num_admit, "admittees and ", top_k, "top k")
+    print()
     pct_value = play_game()
-    overdog_strat = list(strategy_dictionary['overdog'].values())
-    underdog_strat = list(strategy_dictionary['underdog'].values())
     reset_strategies()
-    return [prob_win_underdog, num_admit, pop_frequencies[0], pop_frequencies[1], mean_to_std_diff_ratio, pct_value, overdog_strat[0], overdog_strat[1], overdog_strat[2], overdog_strat[3], underdog_strat[0], underdog_strat[1], underdog_strat[2], underdog_strat[3]]
+    return [prob_win_underdog, num_admit, pop_frequencies[0], pop_frequencies[1], mean_to_std_diff_ratio, pct_value]
 
 
 
@@ -475,7 +425,7 @@ if __name__ == '__main__':
     to_admit_prop = [i/100 for i in range(20, 100, 10)] # multiply this with the size of students and the frequency of mu_high to get the number of students to admit
     # if the value is stable in mu_high props in terms of proportion gained back we know we can ignore it
 
-    p_underdogs = [i/100 for i in range(10, 100, 10)] # the probability of the underdog winning
+    p_underdogs = mu_high_props[:] # the probability of the underdog winning
 
     # the ratio of the difference between high mean - low mean vs high variance - low variance
     # ratio * (hm-lm) = (hv - lv)
@@ -486,17 +436,17 @@ if __name__ == '__main__':
 
 
 
-    toExport = [["p_underdog", "proportion_mu_high_to_admit", "frequency_high_mu", "frequency_high_sigma", "mean_to_std_diff_ratio", "game_value", "over_q1", "over_q2", "over_q3", "over_q4", "under_q1", "under_q2", "under_q3", "under_q4"]]
+    toExport = [["p_underdog", "proportion_mu_high_to_admit", "frequency_high_mu", "frequency_high_sigma", "mean_to_std_diff_ratio", "game_value"]]
     index = 1
     total = (len(p_underdogs)**3) * len(mean_to_std_difference_ratio) * len(to_admit_prop)
     #print(len(mu_high_props), total)
     games = []
 
     # probability that the underdog wins
-    for p in p_underdogs:
+    # for p in p_underdogs:
 
         # proportion of students to admit
-        for admit_prop in to_admit_prop:
+    for admit_prop in to_admit_prop:
 
             # proportion of students that are high in talent by UNCONVENTIONAL metrics
             #for freq_hs in sigma_high_props:
@@ -517,7 +467,7 @@ if __name__ == '__main__':
                             #print(admit_prop, freq_hm * n)
 
                             # add the game to the queue
-                            games.append([ratio, to_admit_val, p, (high_mean_frequency, high_variance_frequency)])
+                            games.append([ratio, to_admit_val, underdog_win_chance, (high_mean_frequency, high_variance_frequency)])
                             
                             
                             '''if index % 100 == 0:
@@ -525,42 +475,39 @@ if __name__ == '__main__':
                             index += 1'''
 
 
-    import csv
-
-    def export_to_csv(data, filename, type='a'):
-        with open(filename, type, newline='') as csvfile:
-            csv_writer = csv.writer(csvfile)
-            
-            # Writing data rows
-            for row in data:
-                csv_writer.writerow(row)
-
-
-    export_to_csv(toExport, "../results/output_top_k_blind.csv", type='w')
     num_games = len(games)
     print(num_games)
     games_high = []
-    for i in range(0,num_games, num_games//10):
-        games_high.append(games[i:min(num_games, i+(num_games//10))])
+    for i in range(0,num_games, num_games//4):
+        games_high.append(games[i:min(num_games, i+(num_games//4))])
 
     # process them block by block to get a grasp on how well its operating
     pct = 0
-    results = []
+    full_game(games[25])
+    '''
     for games_block in games_high:
         print(pct, "% completed")
-        start = t.time()
         with Pool(processes=20) as pool:
-            toExport = pool.map(full_game, games_block)
-        print("exporting to CSV")
-        print(toExport)
-        export_to_csv(toExport, "../results/output_top_k_blind.csv")
-        end = t.time()
-        print(end-start, "seconds to process this batch")
-        pct += 10
-
+            toExport += pool.map(full_game, games_block)
+        pct += 25
+    '''
     '''
     with Pool(processes=20) as pool:
         results = pool.map(full_game, games)
     '''
 
-    
+    import csv
+
+    def export_to_csv(data, filename):
+        with open(filename, 'w', newline='') as csvfile:
+            csv_writer = csv.writer(csvfile)
+            
+            # Writing column names
+            csv_writer.writerow(data[0])
+            
+            # Writing data rows
+            for row in data[1:]:
+                csv_writer.writerow(row)
+
+    print("exporting to CSV")
+    export_to_csv(toExport, "../results/output_top_k.csv")
