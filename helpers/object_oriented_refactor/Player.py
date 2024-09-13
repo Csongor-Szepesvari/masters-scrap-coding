@@ -1,12 +1,14 @@
 from Game import Game
 from Category import Category
 class Player():
-    def __init__(self, win_value):
+    def __init__(self, win_value, num_categories):
         self.strategy = {}
+        for i in range(num_categories):
+            self.strategy["Q"+str(i+1)] = 0
         self.win_value = win_value
 
-    def calculate_win_chance(self, other_players):
-        win_percent = self.win_value / (self.win_value + sum([player.get_win_value() for player in other_players]))
+    def calculate_win_chance(self, players):
+        win_percent = self.win_value / (sum([player.get_win_value() for player in players]))
         return win_percent
     
     def set_strategy(self, game:Game, strat_numbers_list:list):

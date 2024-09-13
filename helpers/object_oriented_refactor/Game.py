@@ -11,11 +11,18 @@ from Player import Player
 import numpy as np
 
 class Game():
-    def __init__(self, players:list[player], categories:list[category], game_mode_type:str):
-        self.players = players
+    def __init__(self, num_players:int, to_admit: int, win_vals:list[float], categories:list[Category], game_mode_type:str):
+        self.num_players = num_players
+        self.populate_game(win_values=win_vals)
+        self.to_admit = to_admit
         self.categories = categories
         self.game_mode_type = game_mode_type
 
+
+    def populate_game(self, win_values:list[float]):
+        self.players = []
+        for i in range(self.num_players):
+            self.players.append(Player(win_value=win_values[i]))
 
     def simulate_game(self):
         '''
@@ -37,6 +44,19 @@ class Game():
         '''
         This function calculates the number of collisions in a category
         '''
+
+    def find_strategies_iterated_br(self):
+        last_strats = None
+        
+        # while 
+        while last_strats != [player.get_strat() for player in self.players]:
+            last_strats = [player]
+            for player in self.players:
+                player.best_response(self)
+            last_strats
+
+    def get_strat_list(self):
+        return [player.get_strat() for player in self.players]
 
 game = Game(players=[Player(60), Player(40)], categories=[Category(size=12, std=1, mean=2, name="Q1"), Category(size=24, std=2, mean=1, name="Q2")])
 for player in game.players:
