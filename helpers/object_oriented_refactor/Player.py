@@ -1,10 +1,10 @@
 from Game import Game
 from Category import Category
 class Player():
-    def __init__(self, win_value, num_categories):
+    def __init__(self, win_value:float, categories:list[Category]):
         self.strategy = {}
-        for i in range(num_categories):
-            self.strategy["Q"+str(i+1)] = 0
+        for category in categories:
+            self.strategy[category.get_name()] = 0 # a floating point representation of the percentage of students to admit from a particular category
         self.win_value = win_value
 
     def calculate_win_chance(self, players):
@@ -24,6 +24,29 @@ class Player():
 
     def get_win_value(self):
         return self.win_value
+    
+    def best_response(game:Game):
+        '''
+        This method calculates the best response in response to a game class and updates the strategy based on the best response type
+        '''
+        if game.game_mode_type == "top_k":
+            # use the top k algorithm to evaluate what the expected best response would be
+            # c(game) = sum(top_k) - (num_attendees-desired_attendees)^2
+            # first term wants you to maximize the number of students you admit, the second term caps it
+
+            # in order to maximize this we keep building up students by student until the marginal value gained from having additional students is less than the chance of finding someone better
+            # this is a greedy method
+
+            # the perfect method 
+        elif game.game_mode_type == "expected":
+            # use the expected case algorithm to evaluate what the expected best response would be in this setting
+            
+            # what are we trying to maximize in this setting?
+            # c(game) = sum(attendees) - (num_attendees-desired_attendees)^2
+            # first term wants you to maximize the number of students you admit, the second term caps it
+
+            # in order to maximize this, we look at other players' allocation or occupancy in each category and calculate how many admissions to give out in order of best to worst
+
     
 
 
