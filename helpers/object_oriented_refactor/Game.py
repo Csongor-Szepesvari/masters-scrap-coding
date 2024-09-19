@@ -14,7 +14,7 @@ class Game():
     '''
     Game class meant for creating specific instances of games, both to find equilibrium points and also to simulate those games
     '''
-    def __init__(self, num_players:int, to_admit: int, win_vals:list[float], categories:list[Category], game_mode_type:str):
+    def __init__(self, num_players:int, to_admit: int, players:list[Player], categories:list[Category], game_mode_type:str):
         '''
         Initializes a game object based on:
 
@@ -26,19 +26,10 @@ class Game():
         '''
 
         self.num_players = num_players
-        self.populate_game(win_values=win_vals)
+        self.players = players
         self.to_admit = to_admit
         self.categories = categories
         self.game_mode_type = game_mode_type
-
-
-    def populate_game(self, win_values:list[float]):
-        '''
-        Creates a list of blank players based on win_values. ONLY USED IN INITIALIZATION
-        '''
-        self.players = []
-        for i in range(self.num_players):
-            self.players.append(Player(win_value=win_values[i]))
 
     def simulate_game(self):
         '''
