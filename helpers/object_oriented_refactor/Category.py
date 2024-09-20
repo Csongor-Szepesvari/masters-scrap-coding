@@ -28,5 +28,5 @@ class Category():
 
 
 
-category = Category(mean=2, std=1, size=10)
+category = Category(name="Q3", mean=2, std=1, size=10)
 #print(category.get_samples(5))

@@ -23,6 +23,3 @@ class Game():
         Simulate game takes all of the variables which define an admissions game environment and simulates the actual outcomes.
         It returns a dictionary of the utilities achieved by each player
         '''
-
-
-def utility_eval
