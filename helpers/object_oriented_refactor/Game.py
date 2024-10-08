@@ -18,9 +18,25 @@ class Player():
         self.blind = blind
 
     def update_blind_strategy(self, strategy, game):
+        '''
+        To update the blind strategy with these categories we have to multiply the probabilities with the category sizes to get the total occupancy and convert it into low and high
+        '''
         categories = game.categories
-        for category in categories.keys():
-            strategy[category]
+        for category in categories.values():
+            num_members = category.get_size()
+            occupancy = strategy[category.get_name()]
+            if category.get_name() == "Q1" or category.get_name() == "Q2":
+                self.blind_strategy["high"] += occupancy * num_members
+            else:
+                self.blind_strategy["low"] += occupancy * num_members
+
+    def update_strategy(self, blind_strategy, game):
+        "This method updates the player strategy based on the blind strategy given"
+        self.strategy["Q1"] = blind_strategy["high"]
+        self.strategy["Q2"] = blind_strategy["high"]
+        self.strategy["Q3"] = blind_strategy["low"]
+        self.strategy["Q4"] = blind_strategy["low"]
+        
 
     def calculate_win_chance(self, players):
         win_percent = self.win_value / (sum([player.get_win_value() for player in players]))
@@ -30,11 +46,10 @@ class Player():
         '''
         This method calculates the expected attendees from a particular strategy in context of all other player's strategies
         '''
-        categories = game.categories
         other_players = [player for player in game.players if player != self]
         print(other_players)
         achieved_result_pct = {}
-        for category in categories:
+        for category in game.categories.values():
             # the meat
             achieved_result_pct[category.get_name()] = strategy[category.get_name()] * (1 - self.calculate_percentage_lost_to_others(other_players, category))
         return achieved_result_pct
@@ -94,7 +109,7 @@ class Player():
         '''
         assert type(game) == Game
         other_players = [player for player in game.players if player != self]
-        for category in game.categories:
+        for category in game.categories.values():
             self.strategy[category.get_name()] = strategy[category.get_name()]/(1-self.calculate_percentage_lost_to_others(other_players=other_players, category=category))
         
 
@@ -106,7 +121,7 @@ class Player():
         Converts a strategy dictionary with numbers into percentages
         '''
         strat = {}
-        for category in game.categories:
+        for category in game.categories.values():
             strat[category.get_name()] = strategy[category.get_name()]/category.get_size()
 
         return strat
@@ -116,7 +131,7 @@ class Player():
         Converts a strategy dictionary with percentages into numbers
         '''
         strat = {}
-        for category in game.categories:
+        for category in game.categories.values():
             strat[category.get_name()] = strategy[category.get_name()]*category.get_size()
 
         return strat
@@ -126,20 +141,19 @@ class Player():
         '''
         This method calculates the best response in response to a game class and updates the strategy based on the best response type
         '''
-        category_sizes = [category.get_size() for category in game.categories]
-        categories = [category.get_name() for category in game.categories]
+        category_sizes = [category.get_size() for category in game.categories.values()]
         max_admit = game.to_admit
         admits = 0
 
         # calculate the maximum number of students we can get
         max_strat = {}
-        for category in game.categories:
+        for category in game.categories.values():
             max_strat[category.get_name()] = 1
         feasible_strat = self.calc_expected_attendees(strategy=max_strat, game=game)
 
         
         feasible_strategy_numbers = {}
-        for category in game.categories:
+        for category in game.categories.values():
             feasible_strategy_numbers[category.get_name()] = feasible_strat[category.get_name()]*category.get_size()
         
             
@@ -228,20 +242,20 @@ class Game():
         self.players = players
         self.to_admit = to_admit
         self.categories = categories
+        self.category_keys = ["Q1", "Q2", "Q3", "Q4"]
         self.blind_categories = self.generate_blind_cat()
         self.game_mode_type = game_mode_type
 
     def generate_blind_cat(self):
-        categories = ["Q1","Q2","Q3","Q4"]
         high = CombinedCategory(
-            name="high", mean1=categories["Q1"].get_mean(), mean2=categories["Q2"].get_mean(), 
-            std1=categories["Q1"].get_std(), std2=categories["Q2"].get_std(), 
-            size1=categories["Q1"].get_size(), size2=categories["Q2"].get_size()
+            name="high", mean1=self.categories["Q1"].get_mean(), mean2=self.categories["Q2"].get_mean(), 
+            std1=self.categories["Q1"].get_std(), std2=self.categories["Q2"].get_std(), 
+            size1=self.categories["Q1"].get_size(), size2=self.categories["Q2"].get_size()
         )
         low = CombinedCategory(
-            name="low", mean1=categories["Q3"].get_mean(), mean2=categories["Q4"].get_mean(), 
-            std1=categories["Q3"].get_std(), std2=categories["Q4"].get_std(),
-            size1=categories["Q3"].get_size(), size2=categories["Q4"].get_size()
+            name="low", mean1=self.categories["Q3"].get_mean(), mean2=self.categories["Q4"].get_mean(), 
+            std1=self.categories["Q3"].get_std(), std2=self.categories["Q4"].get_std(),
+            size1=self.categories["Q3"].get_size(), size2=self.categories["Q4"].get_size()
         )
         return {"high":high, "low":low}
 
