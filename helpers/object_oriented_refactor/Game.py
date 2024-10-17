@@ -9,29 +9,47 @@ The game-mode, also known as the utility function, that players will optimize fo
 from Category import Category, CombinedCategory
 
 import numpy as np
+import pandas as pd
+
+df = pd.read_csv('../mean_dict.csv', na_values=['', 'NA', 'N/A'], keep_default_na=True, na_filter=True)
+
+def df_lookup(num_samples:int, top_k:int)->float:
+    '''
+    Uses global dataframe containing z-scores to do a lookup of what the expected z score is with a given number of samples at the k-th position
+    /params/
+        num_samples : int; The number of students to admit
+        top_k : int; The k-th largest to get
+    /returns/
+        z-score : float; The sampled z-score of that lookup
+    '''
+    assert(top_k<=num_samples)
+    translated = str(top_k)+"th largest"
+    return float(df[df["num_samples"] == num_samples][translated].iloc[0])
 
 class Player():
-    def __init__(self, win_value:float, blind:bool):
+    def __init__(self, win_value:float, blind:bool, level:int):
+        '''
+        Initializer for a Player object, takes in the following parameters:
+        win_value: the value used to calculate the probability of victory for player collisions
+        blind: a boolean value that determines if the player is blind or not
+        level: an integer value that determines the level of the player, with 0 not optimizing past the single-player level and 1+ optimizing for multiple iterations
+        '''
         self.strategy = {"Q1":0, "Q2":0, "Q3":0, "Q4":0}
         self.blind_strategy = {"high":0, "low":0}
         self.win_value = win_value
         self.blind = blind
+        self.level = level
 
     def update_blind_strategy(self, strategy, game):
         '''
         To update the blind strategy with these categories we have to multiply the probabilities with the category sizes to get the total occupancy and convert it into low and high
         '''
-        categories = game.categories
-        for category in categories.values():
-            num_members = category.get_size()
-            occupancy = strategy[category.get_name()]
-            if category.get_name() == "Q1" or category.get_name() == "Q2":
-                self.blind_strategy["high"] += occupancy * num_members
-            else:
-                self.blind_strategy["low"] += occupancy * num_members
+        self.blind_strategy["high"] = strategy["Q1"] * game.categories["Q1"].get_size() + strategy["Q2"] * game.categories["Q2"].get_size() / (game.categories["Q1"].get_size() + game.categories["Q2"].get_size())
+        self.blind_strategy["low"] = strategy["Q3"] * game.categories["Q3"].get_size() + strategy["Q4"] * game.categories["Q4"].get_size() / (game.categories["Q3"].get_size() + game.categories["Q4"].get_size())
 
-    def update_strategy(self, blind_strategy, game):
-        "This method updates the player strategy based on the blind strategy given"
+
+    def update_strategy(self, blind_strategy):
+        '''This method updates the player strategy based on the blind strategy given'''
         self.strategy["Q1"] = blind_strategy["high"]
         self.strategy["Q2"] = blind_strategy["high"]
         self.strategy["Q3"] = blind_strategy["low"]
@@ -58,11 +76,14 @@ class Player():
     def calculate_percentage_lost_to_others(self, other_players, category):
         '''
         This method returns the percentage of a category lost to others regardless of our own strategic occupation.
+        Parameters:
+        1. other_players: a list of all other players in the game
+        2. category: the category we're looking at
         '''
         def helper(occupancy_list, index):
 
             _occ = occupancy_list
-            print(_occ)
+            #print(_occ)
             # start adding up the probabilities of the event
             prob_event = 1
             # include things in the denominator
@@ -97,44 +118,54 @@ class Player():
 
         return f_val + t_val
 
-    def project_desired_to_real(self, strategy, game)->dict[str:float]:
+    def eval_optimal_top_k(self,strategy_numbers:dict[str:int],categories:dict[str:Category], k:int)->float:
         '''
-        Projects a desired strategy out to the realisable game space based on other's strategies.
+        This method finds the optimal distribution of top k over a strategy and returns the expected value of that distribution
         Inputs:
-
-            game->Game : the game object that contains the categories and other player's strategies so that we can find our feasible space.
-
-        Outputs:
-            max_category_values:dict[str:float] : a dictionary representing the strategy to play in order to get our desired strategy
+        strategy_numbers: a dictionary describing the number of attending students
+        categories: a dictionary of the categories themselves
+        k: the top k number
+        Returns:
+        total_value: the expected value of the top k students under this strategy
         '''
-        assert type(game) == Game
-        other_players = [player for player in game.players if player != self]
-        for category in game.categories.values():
-            self.strategy[category.get_name()] = strategy[category.get_name()]/(1-self.calculate_percentage_lost_to_others(other_players=other_players, category=category))
+        k_vals = {category.get_name():0 for category in categories.values()}
+        total_value = 0
+        max_category = ""
+        for i in range(k):
+            max_val = float('-inf')
+            for category in categories.values():
+                _k_val = df_lookup(num_samples=strategy_numbers[category.get_name()], num_success=min(k_vals[category.get_name()]+1, strategy_numbers[category.get_name()]))
+                if _k_val > max_val:
+                    max_val = _k_val
+                    max_category = category.get_name()
+            
+            total_value += max_val
+            k_vals[max_category] += 1
+
+        return total_value
+
+    def greedy_top_k_br(self, game, feasible_strategy_numbers:dict[str:float], k:int, blind=False):
+        to_admit = game.to_admit
+        new_strategy = {category.get_name():0 for category in game.categories.values()}
+        for i in range(to_admit):
+            max_val = float('-inf')
+            max_cat = ""
+            for category in game.categories.values():
+                if 1 + new_strategy[category.get_name()] <= feasible_strategy_numbers[category.get_name()]:
+                    name = category.get_name()
+                    temp_strat = new_strategy.copy()
+                    temp_strat[name] += 1
+                    _val_strat = self.eval_optimal_top_k(strategy_numbers=temp_strat, categories=game.categories, k=k)
+                    if _val_strat > max_val:
+                        max_val = _val_strat
+                        max_cat = name
+            
+            new_strategy[max_cat] += 1
         
+        self.strategy = {category.get_name():new_strategy[category.get_name()]/feasible_strategy_numbers[category.get_name()] for category in game.categories.values()}
+        self.update_blind_strategy(strategy=self.strategy, game=game)       
 
-    
 
-
-    def numbers_to_pct(self, strategy, game):
-        '''
-        Converts a strategy dictionary with numbers into percentages
-        '''
-        strat = {}
-        for category in game.categories.values():
-            strat[category.get_name()] = strategy[category.get_name()]/category.get_size()
-
-        return strat
-
-    def pct_to_numbers(self, strategy, game):
-        '''
-        Converts a strategy dictionary with percentages into numbers
-        '''
-        strat = {}
-        for category in game.categories.values():
-            strat[category.get_name()] = strategy[category.get_name()]*category.get_size()
-
-        return strat
 
     def best_response(self, game):
         assert type(game) == Game
@@ -169,22 +200,22 @@ class Player():
 
 
             if not self.blind:
-                new_strat_numbers = {}
+                new_strat = {}
                 # follow the simple logic of increasing admittances to Q1 > Q2 > Q3 > Q4 etc
                 for cat_name in ["Q1", "Q2", "Q3", "Q4"]:
                     if feasible_strategy_numbers[cat_name] <= max_admit:
-                        # maxing out Q1
+                        # maxing out the category, so we just admit everyone
                         max_admit -= feasible_strategy_numbers[cat_name]
-                        new_strat_numbers[cat_name] = feasible_strategy_numbers[cat_name]
+                        new_strat[cat_name] = 1
                     else:
-                        new_strat_numbers[cat_name] = max_admit
+                        # we can't max out the category, so we admit as many as desired and then stop
+                        new_strat[cat_name] = max_admit/feasible_strategy_numbers[cat_name]
                         break
                 
                 # convert new strat numbers to percentages and then project
-                expected_outcome = self.numbers_to_pct(strategy=new_strat_numbers, game=game)
-                self.strategy = self.project_desired_to_real(expected_outcome, game=game)
                 
-
+                self.strategy = new_strat
+                self.update_blind_strategy(strategy=self.strategy, game=game)
                 
 
             elif self.blind:
@@ -194,20 +225,18 @@ class Player():
                 high_numbers = feasible_strategy_numbers["Q1"] + feasible_strategy_numbers["Q2"]
                 low_numbers = feasible_strategy_numbers["Q3"] + feasible_strategy_numbers["Q4"]
                 new_strat = {}
-                if high_numbers <= max_admit:
-                    new_strat["Q1"] = 1
-                    new_strat["Q2"] = 1
-                else:
-                    # if it's not combined
-                    feasible_strat[]
-                combined_high_size = sum(category_sizes[:2])
-                combined_low_size = sum(category_sizes[2:])
+                
+                # we want to admit in high, h
+                high_admit = min(high_numbers, max_admit)
+                low_admit = min(low_numbers, max_admit-high_admit)
 
-                high_admissions = min(combined_high_size, max_admit)
-                low_admissions = min(combined_low_size, max_admit-high_admissions)
+                real_strat_high = high_admit/high_numbers
+                real_strat_low = low_admit/low_numbers
 
-                desired_strategy = [high_admissions/combined_high_size, low_admissions/combined_low_size]
-                self.project_strategy(self, desired_strategy, game)
+                self.blind_strategy['high'] = real_strat_high
+                self.blind_strategy['low'] = real_strat_low
+                self.update_strategy(strategy=self.blind_strategy)
+
 
         elif game.game_mode_type == "top_k":
             # use the top k algorithm to evaluate what the expected best response would be
@@ -218,7 +247,13 @@ class Player():
             # this is a greedy method
 
             # the perfect method is to literally find
-            pass
+            '''
+            greedy top_k best response process
+            '''
+            if not self.blind:
+                self.greedy_top_k_br(game=game, k=game.top_k, blind=False)
+            else:
+                self.greedy_top_k_br(game=game, k=game.top_k, blind=True)
 
 
 
@@ -227,7 +262,7 @@ class Game():
     '''
     Game class meant for creating specific instances of games, both to find equilibrium points and also to simulate those games
     '''
-    def __init__(self, num_players:int, to_admit: int, players:list[Player], categories:dict[str:Category], game_mode_type:str):
+    def __init__(self, num_players:int, to_admit: int, players:list[Player], categories:dict[str:Category], game_mode_type:str, top_k=None):
         '''
         Initializes a game object based on:
 
@@ -245,6 +280,7 @@ class Game():
         self.category_keys = ["Q1", "Q2", "Q3", "Q4"]
         self.blind_categories = self.generate_blind_cat()
         self.game_mode_type = game_mode_type
+        self.top_k = top_k
 
     def generate_blind_cat(self):
         high = CombinedCategory(
@@ -268,6 +304,7 @@ class Game():
         for category in self.categories:
             realized_strategies = []
             for player in self.players:
+                # we grab the strategies for each player
                 # grab the strategy for the player in this category
                 percentage_reprentation = player.get_strategy(category.get_name())
                 # generate the realized strategy for each player
@@ -289,11 +326,14 @@ class Game():
         # while last strats aren't the same as the current updated list, loop (detects if there's no change from looping)
 
         # NOTE: straight equality (==) CAN be used here, because python does an element-wise equality check of lists, which then does an equality check on the nested dictionaries, very cool!
+        looped = 0
         while last_strats != self.get_strat_list():
             # update last strats to the current strats before updating our strategies in the inner loop
             last_strats = self.get_strat_list()
             for player in self.players:
-                player.best_response(self)
+                if player.level >= looped:
+                    player.best_response(self)
+            looped += 1
 
         print("Woohoo! Converged!")
 
@@ -301,5 +341,5 @@ class Game():
         '''
         This method loops through the player list and gets a list of their respective strategies
         '''
-        return [player.get_strat() for player in self.players]
+        return [player.strategy for player in self.players]
 
