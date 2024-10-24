@@ -11,7 +11,7 @@ from Category import Category, CombinedCategory
 import numpy as np
 import pandas as pd
 
-df = pd.read_csv('../mean_dict.csv', na_values=['', 'NA', 'N/A'], keep_default_na=True, na_filter=True)
+df = pd.read_csv('modified_mean_dict.csv', na_values=['', 'NA', 'N/A'], keep_default_na=True, na_filter=True)
 
 def df_lookup(num_samples:int, top_k:int)->float:
     '''
@@ -27,7 +27,7 @@ def df_lookup(num_samples:int, top_k:int)->float:
     return float(df[df["num_samples"] == num_samples][translated].iloc[0])
 
 class Player():
-    def __init__(self, win_value:float, blind:bool, level:int):
+    def __init__(self, win_value:float, blind:bool, level:int, name:str):
         '''
         Initializer for a Player object, takes in the following parameters:
         win_value: the value used to calculate the probability of victory for player collisions
@@ -39,6 +39,7 @@ class Player():
         self.win_value = win_value
         self.blind = blind
         self.level = level
+        self.name = name
 
     def update_blind_strategy(self, strategy, game):
         '''
@@ -147,23 +148,37 @@ class Player():
     def greedy_top_k_br(self, game, feasible_strategy_numbers:dict[str:float], k:int, blind=False):
         to_admit = game.to_admit
         new_strategy = {category.get_name():0 for category in game.categories.values()}
-        for i in range(to_admit):
-            max_val = float('-inf')
-            max_cat = ""
-            for category in game.categories.values():
-                if 1 + new_strategy[category.get_name()] <= feasible_strategy_numbers[category.get_name()]:
-                    name = category.get_name()
-                    temp_strat = new_strategy.copy()
-                    temp_strat[name] += 1
-                    _val_strat = self.eval_optimal_top_k(strategy_numbers=temp_strat, categories=game.categories, k=k)
-                    if _val_strat > max_val:
-                        max_val = _val_strat
-                        max_cat = name
-            
-            new_strategy[max_cat] += 1
+        if not blind:
+            for i in range(to_admit):
+                max_val = float('-inf')
+                max_cat = ""
+                for category in game.categories.values():
+                    if 1 + new_strategy[category.get_name()] <= feasible_strategy_numbers[category.get_name()]:
+                        name = category.get_name()
+                        temp_strat = new_strategy.copy()
+                        temp_strat[name] += 1
+                        _val_strat = self.eval_optimal_top_k(strategy_numbers=temp_strat, categories=game.categories, k=k)
+                        if _val_strat > max_val:
+                            max_val = _val_strat
+                            max_cat = name
+    
+                new_strategy[max_cat] += 1
+
+            self.strategy = {category.get_name():new_strategy[category.get_name()]/feasible_strategy_numbers[category.get_name()] for category in game.categories.values()}
+            self.update_blind_strategy(strategy=self.strategy, game=game)    
+
+        else:
+            # the blind agent just takes the high mean players
+            high_nums = feasible_strategy_numbers["Q1"] + feasible_strategy_numbers["Q2"]
+            low_nums = feasible_strategy_numbers["Q3"] + feasible_strategy_numbers["Q4"]
+
+            high_admit = min(to_admit, high_nums)
+            remainder = to_admit-high_admit
+
+            blind_strategy = {"high":high_admit/high_nums, "low":remainder/low_nums}
+            self.update_strategy(blind_strategy=blind_strategy)
         
-        self.strategy = {category.get_name():new_strategy[category.get_name()]/feasible_strategy_numbers[category.get_name()] for category in game.categories.values()}
-        self.update_blind_strategy(strategy=self.strategy, game=game)       
+           
 
 
 
@@ -256,6 +271,33 @@ class Player():
                 self.greedy_top_k_br(game=game, k=game.top_k, blind=True)
 
 
+class Candidate():
+    '''
+    Candidate objects, has a value generated from a category.
+    '''
+
+    def __init__(self, category:Category):
+        self.value = category.get_samples(1)
+        self.competitors = []
+
+
+    def add_competitor(self, player:Player):
+        self.competitors.append(player)
+
+    def simulate_winner(self)->Player:
+        # randomly sample between 0-1
+
+        # normalize their values and turn them into cumulative values
+        comp_values = np.array([player.win_value for player in self.competitors])
+        normalized_values = comp_values/np.sum(comp_values)
+        # set cumulative limits
+        cumulative_probs = np.cumsum(normalized_values)
+        # get random value
+        random_value = np.random.rand()
+        # find winner
+        for i in range(len(cumulative_probs)):
+            if random_value < cumulative_probs[i]:
+                return self.competitors[i]
 
 
 class Game():
@@ -275,6 +317,7 @@ class Game():
 
         self.num_players = num_players
         self.players = players
+        self.player_dict = {player.name:player for player in self.players}
         self.to_admit = to_admit
         self.categories = categories
         self.category_keys = ["Q1", "Q2", "Q3", "Q4"]
@@ -295,21 +338,69 @@ class Game():
         )
         return {"high":high, "low":low}
 
-    def simulate_game(self):
+    def get_game_utility(self, attendees:dict[str:float], game_type:str, top_k=None)->dict[str:float]:
+        '''evaluates a game based on our two utility functions and returns the utility of each player in a dictionary
+        structure of dictionary is player.name : utility
+        '''
+        results = {}
+        if game_type=="top_k":
+            # the utility function in this case will add up the top k values and subtract the difference with desired
+            for player in self.players:
+                utility = sum(sorted(attendees[player.name], reverse=True)[:top_k]) - (len(attendees[player.name])-self.to_admit)**2
+                results[player.name] = utility
+        else:
+            # straight sum minus the difference
+            for player in self.players:
+                utility = attendees[player.name] - (len(attendees[player.name])-self.to_admit)**2
+                results[player.name] = utility
+
+        return results
+
+
+    def simulate_game(self, garbage):
         '''
         This method simulates a game as it would actually play out based on the players' strategies.
 
         It steps through each category, generates random sets of admittees for each player based on their strategies, resolves collisions and gets actual attendants
         '''
+        _garbage = garbage
+
+        attendees = {player.name:[] for player in self.players}
         for category in self.categories:
-            realized_strategies = []
+            # for each category generate a list of admittees
+            candidates = [Candidate(category) * category.get_size()]
+            
+            admittees = []
+            
+
             for player in self.players:
-                # we grab the strategies for each player
-                # grab the strategy for the player in this category
-                percentage_reprentation = player.get_strategy(category.get_name())
-                # generate the realized strategy for each player
-                realized_strategies.append(np.random.choice(size=category.get_size(), replace=False))
-            print(realized_strategies)
+                # we want to highlight a selection of candidates, for each player we want to give 0 or 1 for each candidate
+                player_selection = set(np.random.Generator.choice(a=category.get_size(), size=player.strategy[category.get_name()]*category.get_size(), replace=False))
+                temp = []
+                for i in range(self.category.get_size()):
+                    if i in player_selection:
+                        temp.append(1)
+                    else:
+                        temp.append(0)
+                admittees.append(temp)
+                
+
+            '''
+            Loop through candidates, then for each player in admittees check who is in on sweepstakes
+            Then simulate the chance breakdown and add the candidate value to the winning players attendees
+            '''
+            for i in range(len(candidates)):
+                candidate = candidates[i]
+                for j in range(len(self.players)):
+                    can_player = admittees[j][i]
+                    if can_player == 1:
+                        candidate.add_competitor(self.players[j])
+                winning_player = candidate.simulate_winner()
+                attendees[winning_player.name].append(candidate.value)
+
+        '''Calculate the utilities for the game and return it'''
+        return self.get_game_utility(attendees=attendees, game_type=self.game_mode_type, top_k=self.top_k)
+
             
 
     def find_strategies_iterated_br(self):

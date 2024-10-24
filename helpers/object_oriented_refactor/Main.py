@@ -11,9 +11,6 @@ The sort of things we're interested in varying over:
         4.1. This is the relative value of the information added by disambiguating between unconvetional high and low variables, representing the variance.
     5. The level of players/their naivety, and its consequences
 '''
-
-Game.game(num_players=2, to_admit=2, players:list[Player], categories:dict[str:Category], game_mode_type:str, top_k=None)
-
 '''
 Set up the conditions for each type of game we're investigating
 '''
@@ -32,6 +29,10 @@ high_low_ratio_variances = [i/10 for i in range(11, 21)] # this needs to be scal
 mean_variance_ratios = [i/100 for i in range(125, 301, 25)] # this needs to be scaled so it's 1.25, 1.5, 1.75, ..., 3.0
 high_mean_probs = [i/10 for i in range(1, 5)] # this needs to be scaled so it's 0.1, 0.2, 0.3, 0.4
 high_variance_probs = [i/10 for i in range(1, 5)] # this needs to be scaled so it's 0.1, 0.2, 0.3, 0.4
+
+#top_k on and off
+top_k = ["expected", "top_k"]
+
 
 def categories_generator(high_low_ratio_mean, high_low_ratio_variance, mean_variance_ratio, high_mean_probability, high_variance_probability):
     '''
@@ -74,19 +75,22 @@ for pct_admit in pct_high_to_admit:
                         for mean_variance_ratio in mean_variance_ratios:
                             for high_mean_probability in high_mean_probs:
                                 for high_variance_probability in high_variance_probs:
-                                    categories = categories_generator(high_low_ratio_mean, high_low_ratio_variance, mean_variance_ratio, high_mean_probability, high_variance_probability)
-                                    players = generate_players(blind_combo, level, win_value)
-                                    to_admit = int(pct_admit*120*high_mean_probability)
+                                    for game_mode in top_k:
+                                        categories = categories_generator(high_low_ratio_mean, high_low_ratio_variance, mean_variance_ratio, high_mean_probability, high_variance_probability)
+                                        players = generate_players(blind_combo, level, win_value)
+                                        to_admit = int(pct_admit*120*high_mean_probability)
+                                        
+                                        # create the game
+                                        game = Game.Game(num_players=2, to_admit=to_admit, players=players, categories=categories, game_mode_type="expected", top_k=0.2*to_admit)
+                                        # find the strategies using iterated best response
+                                        game.find_strategies_iterated_br()
+                                        # simulate 100 games to find the relative expected value of the underdog
+                                        with Pool(processes=12) as pool:
+                                            results = pool.map(game.simulate_game, range(100))
+                                        
+                                        # results is 
+
                                     
-                                    # create the game
-                                    game = Game.Game(num_players=2, to_admit=to_admit, players=players, categories=categories, game_mode_type="expected", top_k=0.2*to_admit)
-                                    # find the strategies using iterated best response
-                                    game.find_strategies_iterated_br()
-                                    # simulate 100 games to find the relative expected value of the underdog
-                                    with Pool(processes=12) as pool:
-                                        results = pool.map(game.simulate_game, range(100))
 
 
-with Pool(processes=4) as pool:
-    answers = pool.map(change_global, range(10))
-    print(answers)
+
